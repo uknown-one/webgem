@@ -1,4 +1,7 @@
 # webgem.gemspec
+
+require_relative "lib/webgem/version"
+
 Gem::Specification.new do |spec|
   spec.name          = "webgem"
   spec.version       = Webgem::VERSION
@@ -19,5 +22,5 @@ Gem::Specification.new do |spec|
   spec.bindir        = "bin"
   spec.require_paths = ["lib"]
 
-  spec.add_development_dependency "rspec", "~> 4.0"
+  spec.add_development_dependency "rspec", "~> 3.13"
 end
