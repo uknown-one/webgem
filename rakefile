@@ -1,3 +1,5 @@
+# Rakefile
+
 require "rake/testtask"
 
 desc "Run RSpec"
