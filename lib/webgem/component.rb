@@ -10,6 +10,13 @@ module Webgem
       instance_eval(&block) if block_given?
     end
 
+    # DSL inside a component for nested components
+    def component(name, attrs = {}, &block)
+      child = Component.new(name, attrs, &block)
+      add(child)
+      child
+    end
+
     def add(child)
       @children << child
     end
