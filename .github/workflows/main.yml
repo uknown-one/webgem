@@ -3,7 +3,7 @@ name: CI
 on:
   push:
     branches: [ "main" ]
-    tags:    # triggers publish on version tags like v1.2.3
+    tags:
       - 'v*.*.*'
   pull_request:
     branches: [ "main" ]
@@ -18,10 +18,9 @@ jobs:
   test-hosted:
     name: Test on GitHub-hosted Ruby
     runs-on: ubuntu-latest
-    if: runner.os == 'Linux' && contains(runner.labels, 'ubuntu-latest')
     strategy:
       matrix:
-        ruby-version: [ "2.7.8", "3.2.2" ]  # pin patch versions for reproducibility
+        ruby-version: [ "2.7.8", "3.2.2" ]
 
     steps:
       - uses: actions/checkout@v4
@@ -37,8 +36,7 @@ jobs:
 
   test-self-hosted:
     name: Test on self-hosted ubuntu-24.04-x64
-    runs-on: ubuntu-24.04-x64
-    if: startsWith(runner.name, 'self-hosted') || contains(runner.labels, 'ubuntu-24.04-x64')
+    runs-on: [ self-hosted, ubuntu-24.04-x64 ]
     env:
       RUBY_VERSION: "3.2.2"
       TOOL_CACHE: /opt/hostedtoolcache/Ruby
@@ -46,51 +44,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install build prerequisites
-        run: |
-          sudo apt update
-          sudo apt install -y build-essential libssl-dev libreadline-dev zlib1g-dev libyaml-dev libffi-dev autoconf bison git
+      - name: Use reusable Ruby toolchain action
+        uses: ./.github/actions/ruby-toolchain
+        with:
+          ruby-version: ${{ env.RUBY_VERSION }}
+          tool-cache: ${{ env.TOOL_CACHE }}
 
-      - name: Bootstrap ruby-build
-        run: |
-          mkdir -p "$HOME/.ruby-build"
-          if [ ! -f "$HOME/.ruby-build/bin/ruby-build" ]; then
-            git clone https://github.com/rbenv/ruby-build.git "$HOME/.ruby-build"
-            cd "$HOME/.ruby-build" && ./install.sh
-          else
-            cd "$HOME/.ruby-build" && git pull
-          fi
-          export PATH="$HOME/.ruby-build/bin:$PATH"
-
-      - name: Install Ruby into toolcache
-        id: install_ruby
-        run: |
-          set -euo pipefail
-          export PATH="$HOME/.ruby-build/bin:$PATH"
-
-          TARGET_DIR="$TOOL_CACHE/$RUBY_VERSION/x64"
-          COMPLETE_MARK="$TARGET_DIR.complete"
-          LOCKFILE="$TOOL_CACHE/install.lock"
-
-          mkdir -p "$(dirname "$LOCKFILE")"
-          exec 9>"$LOCKFILE"
-          flock 9
-
-          if [ -f "$COMPLETE_MARK" ]; then
-            echo "Ruby $RUBY_VERSION already installed."
-          else
-            echo "Building Ruby $RUBY_VERSION to $TARGET_DIR"
-            mkdir -p "$TARGET_DIR"
-            ruby-build "$RUBY_VERSION" "$TARGET_DIR"
-            touch "$COMPLETE_MARK"
-          fi
-
-          echo "ruby_path=$TARGET_DIR/bin" >> "$GITHUB_OUTPUT"
+      - name: Cache bundle directory
+        id: bundle-cache
+        uses: actions/cache@v4
+        with:
+          path: vendor/bundle
+          key: selfhosted-bundle-${{ hashFiles('**/Gemfile.lock') }}-ruby-${{ env.RUBY_VERSION }}
+          restore-keys: |
+            selfhosted-bundle-${{ hashFiles('**/Gemfile.lock') }}-ruby-
 
       - name: Use installed Ruby and install dependencies
         run: |
-          RUBY_BIN_PATH="${{ steps.install_ruby.outputs.ruby_path }}"
-          export PATH="$RUBY_BIN_PATH:$PATH"
+          # ruby/toolchain action exposes ruby in PATH
           ruby -v
           gem install bundler rake
           bundle config set path vendor/bundle
@@ -114,13 +85,12 @@ jobs:
           bundler-cache: true
 
       - name: Build gem
-        run: |
-          GEMFILE_LOCK_EXISTS=$( [ -f Gemfile.lock ] && echo "yes" || echo "no" )
-          bundle exec rake build
+        run: bundle exec rake build
 
       - name: Publish to RubyGems
         env:
-          RUBYGEMS_API_KEY: ${{ secrets.RUBYGEMS_API_KEY }}
+         RUBYGEMS_API_KEY: ${{ secrets.RUBYGEMS_API_KEY }}
         run: |
-          # Ensure you have set RUBYGEMS_API_KEY in repository secrets
           gem push pkg/${GEM_NAME}-$(ruby -e "require './lib/webgem/version'; puts Webgem::VERSION").gem
+
+      
