@@ -1,0 +1,7 @@
+/.bundle/
+/coverage/
+/pkg/
+/*.gem
+/.rspec_status
+/.vscode/
+/*.lock
