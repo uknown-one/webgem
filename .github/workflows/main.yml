@@ -1,17 +1,44 @@
-name: CI Self-Hosted
+name: CI
 
 on:
   push:
     branches: [ "main" ]
+    tags:    # triggers publish on version tags like v1.2.3
+      - 'v*.*.*'
   pull_request:
     branches: [ "main" ]
 
 permissions:
   contents: read
 
+env:
+  GEM_NAME: webgem
+
 jobs:
+  test-hosted:
+    name: Test on GitHub-hosted Ruby
+    runs-on: ubuntu-latest
+    if: runner.os == 'Linux' && contains(runner.labels, 'ubuntu-latest')
+    strategy:
+      matrix:
+        ruby-version: [ "2.7.8", "3.2.2" ]  # pin patch versions for reproducibility
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: ${{ matrix.ruby-version }}
+          bundler-cache: true
+
+      - name: Run tests
+        run: bundle exec rake spec
+
   test-self-hosted:
-    runs-on: ubuntu-24.04-x64  # your self-hosted label
+    name: Test on self-hosted ubuntu-24.04-x64
+    runs-on: ubuntu-24.04-x64
+    if: startsWith(runner.name, 'self-hosted') || contains(runner.labels, 'ubuntu-24.04-x64')
     env:
       RUBY_VERSION: "3.2.2"
       TOOL_CACHE: /opt/hostedtoolcache/Ruby
@@ -71,3 +98,29 @@ jobs:
 
       - name: Run tests
         run: bundle exec rake spec
+
+  publish:
+    name: Publish gem
+    needs: [ test-hosted, test-self-hosted ]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.2.2"
+          bundler-cache: true
+
+      - name: Build gem
+        run: |
+          GEMFILE_LOCK_EXISTS=$( [ -f Gemfile.lock ] && echo "yes" || echo "no" )
+          bundle exec rake build
+
+      - name: Publish to RubyGems
+        env:
+          RUBYGEMS_API_KEY: ${{ secrets.RUBYGEMS_API_KEY }}
+        run: |
+          # Ensure you have set RUBYGEMS_API_KEY in repository secrets
+          gem push pkg/${GEM_NAME}-$(ruby -e "require './lib/webgem/version'; puts Webgem::VERSION").gem
