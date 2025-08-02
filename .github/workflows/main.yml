@@ -1,0 +1,73 @@
+name: CI Self-Hosted
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+permissions:
+  contents: read
+
+jobs:
+  test-self-hosted:
+    runs-on: ubuntu-24.04-x64  # your self-hosted label
+    env:
+      RUBY_VERSION: "3.2.2"
+      TOOL_CACHE: /opt/hostedtoolcache/Ruby
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build prerequisites
+        run: |
+          sudo apt update
+          sudo apt install -y build-essential libssl-dev libreadline-dev zlib1g-dev libyaml-dev libffi-dev autoconf bison git
+
+      - name: Bootstrap ruby-build
+        run: |
+          mkdir -p "$HOME/.ruby-build"
+          if [ ! -f "$HOME/.ruby-build/bin/ruby-build" ]; then
+            git clone https://github.com/rbenv/ruby-build.git "$HOME/.ruby-build"
+            cd "$HOME/.ruby-build" && ./install.sh
+          else
+            cd "$HOME/.ruby-build" && git pull
+          fi
+          export PATH="$HOME/.ruby-build/bin:$PATH"
+
+      - name: Install Ruby into toolcache
+        id: install_ruby
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.ruby-build/bin:$PATH"
+
+          TARGET_DIR="$TOOL_CACHE/$RUBY_VERSION/x64"
+          COMPLETE_MARK="$TARGET_DIR.complete"
+          LOCKFILE="$TOOL_CACHE/install.lock"
+
+          mkdir -p "$(dirname "$LOCKFILE")"
+          exec 9>"$LOCKFILE"
+          flock 9
+
+          if [ -f "$COMPLETE_MARK" ]; then
+            echo "Ruby $RUBY_VERSION already installed."
+          else
+            echo "Building Ruby $RUBY_VERSION to $TARGET_DIR"
+            mkdir -p "$TARGET_DIR"
+            ruby-build "$RUBY_VERSION" "$TARGET_DIR"
+            touch "$COMPLETE_MARK"
+          fi
+
+          echo "ruby_path=$TARGET_DIR/bin" >> "$GITHUB_OUTPUT"
+
+      - name: Use installed Ruby and install dependencies
+        run: |
+          RUBY_BIN_PATH="${{ steps.install_ruby.outputs.ruby_path }}"
+          export PATH="$RUBY_BIN_PATH:$PATH"
+          ruby -v
+          gem install bundler rake
+          bundle config set path vendor/bundle
+          bundle install
+
+      - name: Run tests
+        run: bundle exec rake spec
