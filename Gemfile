@@ -20,8 +20,8 @@ group :development do
 end
 
 group :test do
-  gem "rspec", "~> 4.0"
-  gem "simplecov", "~> 1.0"     # coverage reporting
+  gem "rspec", "~> 3.13"
+  gem "simplecov", "~> 0.22.0"     # coverage reporting
   gem "fakefs", "~> 1.3"         # for isolated filesystem tests if needed
 end
 
