@@ -1,0 +1,16 @@
+require "rake/testtask"
+
+desc "Run RSpec"
+task :spec do
+  sh "rspec"
+end
+
+desc "Build gem"
+task :build do
+  sh "gem build webgem.gemspec"
+end
+
+desc "Install locally"
+task :install => :build do
+  sh "gem install ./webgem-#{Webgem::VERSION}.gem"
+end
