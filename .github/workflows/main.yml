@@ -1,0 +1,94 @@
+
+name: CI
+
+on:
+  push:
+    branches: [ "main" ]
+    tags:
+      - 'v*.*.*'
+  pull_request:
+    branches: [ "main" ]
+
+permissions:
+  contents: read
+
+env:
+  GEM_NAME: webgem
+
+jobs:
+  test-hosted:
+    name: Test on GitHub-hosted Ruby
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        ruby-version: [ "2.7.8", "3.2.2" ]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: ${{ matrix.ruby-version }}
+          bundler-cache: true
+
+      - name: Run tests
+        run: bundle exec rake spec
+
+  test-self-hosted:
+    name: Test on self-hosted ubuntu-24.04-x64
+    runs-on: [ self-hosted, ubuntu-24.04-x64 ]
+    env:
+      RUBY_VERSION: "3.2.2"
+      TOOL_CACHE: /opt/hostedtoolcache/Ruby
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use reusable Ruby toolchain action
+        uses: ./.github/actions/ruby-toolchain
+        with:
+          ruby-version: ${{ env.RUBY_VERSION }}
+          tool-cache: ${{ env.TOOL_CACHE }}
+
+      - name: Cache bundle directory
+        id: bundle-cache
+        uses: actions/cache@v4
+        with:
+          path: vendor/bundle
+          key: selfhosted-bundle-${{ hashFiles('**/Gemfile.lock') }}-ruby-${{ env.RUBY_VERSION }}
+          restore-keys: |
+            selfhosted-bundle-${{ hashFiles('**/Gemfile.lock') }}-ruby-
+      - name: Use installed Ruby and install dependencies
+        run: |
+          # ruby/toolchain action exposes ruby in PATH
+          ruby -v
+          gem install bundler rake
+          bundle config set path vendor/bundle
+          bundle install
+      - name: Run tests
+        run: bundle exec rake spec
+
+  publish:
+    name: Publish gem
+    needs: [ test-hosted, test-self-hosted ]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.2.2"
+          bundler-cache: true
+
+      - name: Build gem
+        run: bundle exec rake build
+
+      - name: Publish to RubyGems
+        env:
+         RUBYGEMS_API_KEY: ${{ secrets.RUBYGEMS_API_KEY }}
+        run: |
+          gem push pkg/${GEM_NAME}-$(ruby -e "require './lib/webgem/version'; puts Webgem::VERSION").gem
+      
